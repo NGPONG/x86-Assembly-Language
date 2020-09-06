@@ -31,7 +31,7 @@ SECTION mbr align=16 vstart=0x7c00
          mov ax,[0]
          mov bx,512                      ;512字节每扇区
          div bx
-         cmp dx,0
+         cmp dx,0                        ; 这里是有问题的
          jnz @1                          ;未除尽，因此结果比实际扇区数少1 
          dec ax                          ;已经读了一个扇区，扇区总数减1 
    @1:

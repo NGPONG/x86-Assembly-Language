@@ -89,8 +89,8 @@ put_char:                                ;显示一个字符
 
  .roll_screen:
          cmp bx,2000                     ;光标超出屏幕？滚屏
-         jl .set_cursor
-
+         jl .set_cursor                  ; if (bx < 2000) call .set_cursor
+                                         ; else execute roll_screen
          mov ax,0xb800
          mov ds,ax
          mov es,ax
