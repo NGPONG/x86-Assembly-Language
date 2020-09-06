@@ -82,6 +82,7 @@ put_char:                                ;显示一个字符
          mov es,ax
          shl bx,1
          mov [es:bx],cl
+         mov [es:bx+1],0x07
 
          ;以下将光标位置推进一个字符
          shr bx,1
