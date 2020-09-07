@@ -32,13 +32,13 @@ new_int_0x70:
       push es
       
   .w0:                                    
-      mov al,0x0a                        ;阻断NMI。当然，通常是不必要的
+      mov al,0x0a                        
       or al,0x80                          
-      out 0x70,al
+      out 0x70,al                        ;写入 RTC 寄存器a 的索引，并且阻断 NMI 
       in al,0x71                         ;读寄存器A
       test al,0x80                       ;测试第7位UIP 
-      jnz .w0                            ;以上代码对于更新周期结束中断来说 
-                                         ;是不必要的 
+      jnz .w0                            ;if RTC RegA 7bit != 0
+
       xor al,al
       or al,0x80
       out 0x70,al
@@ -57,19 +57,22 @@ new_int_0x70:
       in al,0x71                         ;读RTC当前时间(时)
       push ax
 
-      mov al,0x0c                        ;寄存器C的索引。且开放NMI 
-      out 0x70,al
-      in al,0x71                         ;读一下RTC的寄存器C，否则只发生一次中断
-                                         ;此处不考虑闹钟和周期性中断的情况 
+      mov al,0x0c                       
+      out 0x70,al                        ;写入 RTC 寄存器c 的索引，并且开放 NMI 
+      in al,0x71                         ;重置 RTC 未决中断(此处不考虑闹钟和周期性中断的情况)
+
       mov ax,0xb800
       mov es,ax
 
-      pop ax
-      call bcd_to_ascii
+
       mov bx,12*160 + 36*2               ;从屏幕上的12行36列开始显示
 
+      pop ax
+      call bcd_to_ascii
       mov [es:bx],ah
+      mov byte [es:bx+1],0x07
       mov [es:bx+2],al                   ;显示两位小时数字
+      mov byte [es:bx+3],0x07
 
       mov al,':'
       mov [es:bx+4],al                   ;显示分隔符':'
@@ -78,7 +81,9 @@ new_int_0x70:
       pop ax
       call bcd_to_ascii
       mov [es:bx+6],ah
+      mov byte [es:bx+7],0x07
       mov [es:bx+8],al                   ;显示两位分钟数字
+      mov byte [es:bx+9],0x07
 
       mov al,':'
       mov [es:bx+10],al                  ;显示分隔符':'
@@ -87,7 +92,9 @@ new_int_0x70:
       pop ax
       call bcd_to_ascii
       mov [es:bx+12],ah
+      mov byte [es:bx+13],0x07
       mov [es:bx+14],al                  ;显示两位小时数字
+      mov byte [es:bx+15],0x07
       
       mov al,0x20                        ;中断结束命令EOI 
       out 0xa0,al                        ;向从片发送 
@@ -131,7 +138,7 @@ start:
       
       mov al,0x70
       mov bl,4
-      mul bl                             ;计算0x70号中断在IVT中的偏移
+      mul bl                             ;计算0x70号中断在IVT中的偏移，每个中断向量占用4bytes
       mov bx,ax                          
 
       cli                                ;防止改动期间发生新的0x70号中断
@@ -144,19 +151,31 @@ start:
       mov word [es:bx+2],cs              ;段地址
       pop es
 
-      mov al,0x0b                        ;RTC寄存器B
-      or al,0x80                         ;阻断NMI 
-      out 0x70,al
-      mov al,0x12                        ;设置寄存器B，禁止周期性中断，开放更 
-      out 0x71,al                        ;新结束后中断，BCD码，24小时制 
+      ;*******************************c_09_2**************************************
+      mov al,0x0a                         
+      or al,0x80
+      out 0x70,al                        ;获取 RTC 寄存器a 并设置 NMI 中断
+      in al,0x71
+      or al,0x0f                         ;al = 0000 1111b, 500ms
+      out 0x71,al       
+      
+      mov al,0x0b       
+      or al,0x80
+      out 0x70,al                        ;获取 RTC 寄存器b 并设置 NMI 中断
+      mov al,0x42                        ;0x42 = 0100 0010b
+      out 0x71,al       
+      ;*******************************c_09_2**************************************
 
       mov al,0x0c
-      out 0x70,al
+      out 0x70,al                        ;这一步除了写入索引寄存器即将要读取RTC寄存器C的值外，还复位了 NMI
       in al,0x71                         ;读RTC寄存器C，复位未决的中断状态
-
-      in al,0xa1                         ;读8259从片的IMR寄存器 
-      and al,0xfe                        ;清除bit 0(此位连接RTC)
-      out 0xa1,al                        ;写回此寄存器 
+      
+      ;*******************************c_09_1**************************************
+      mov al,0xfe                        
+      out 0xa1,al                        ;阻断 slave  除 IR2 外的所有电路引脚
+      mov al,0xfb         
+      out 0x21,al                        ;阻断 master 除 IR0 外的所有电路引脚
+      ;*******************************c_09_1**************************************
 
       sti                                ;重新开放中断 
 
@@ -168,11 +187,11 @@ start:
       
       mov cx,0xb800
       mov ds,cx
-      mov byte [12*160 + 33*2],'@'       ;屏幕第12行，35列
+      mov byte [12*160 + 33*2],'@'       ;屏幕第12行，33列
        
  .idle:
       hlt                                ;使CPU进入低功耗状态，直到用中断唤醒
-      not byte [12*160 + 33*2+1]         ;反转显示属性 
+      not byte [12*160 + 33*2 + 1]       ;反转显示属性 
       jmp .idle
 
 ;-------------------------------------------------------------------------------
@@ -213,8 +232,8 @@ put_char:                                ;显示一个字符
          in al,dx                        ;低8位 
          mov bx,ax                       ;BX=代表光标位置的16位数
 
-         cmp cl,0x0d                     ;回车符？
-         jnz .put_0a                     ;不是。看看是不是换行等字符 
+         cmp cl,0x0d
+         jnz .put_0a                     ;if cl != \r
          mov ax,bx                       ; 
          mov bl,80                       
          div bl
@@ -223,9 +242,9 @@ put_char:                                ;显示一个字符
          jmp .set_cursor
 
  .put_0a:
-         cmp cl,0x0a                     ;换行符？
-         jnz .put_other                  ;不是，那就正常显示字符 
-         add bx,80
+         cmp cl,0x0a
+         jnz .put_other                  ;if cl != \n
+         add bx,80                       ;因为换行符是紧随着回车符出现的，而回车符会先把 bx 置为当前行的行首，所以这时候加上 80 就等于下一行的行首了
          jmp .roll_screen
 
  .put_other:                             ;正常显示字符
@@ -233,6 +252,7 @@ put_char:                                ;显示一个字符
          mov es,ax
          shl bx,1
          mov [es:bx],cl
+         mov byte [es:bx+1],0x07
 
          ;以下将光标位置推进一个字符
          shr bx,1
@@ -240,7 +260,7 @@ put_char:                                ;显示一个字符
 
  .roll_screen:
          cmp bx,2000                     ;光标超出屏幕？滚屏
-         jl .set_cursor
+         jl .set_cursor                  ;if bx < 2000(即到了一个页的右下角)
 
          mov ax,0xb800
          mov ds,ax
@@ -249,8 +269,8 @@ put_char:                                ;显示一个字符
          mov si,0xa0
          mov di,0x00
          mov cx,1920
-         rep movsw
-         mov bx,3840                     ;清除屏幕最底一行
+         rep movsw                       ;清除首行，并下一行依次往上移动一行
+         mov bx,3840                     ;清除底行
          mov cx,80
  .cls:
          mov word[es:bx],0x0720
