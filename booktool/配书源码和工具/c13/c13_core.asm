@@ -407,7 +407,7 @@ load_relocate_program:                      ;加载并重定位用户程序
          mov eax,[core_buf]                 ;程序尺寸
          mov ebx,eax
          and ebx,0xfffffe00                 ;使之512字节对齐（能被512整除的数， 
-         add ebx,512                        ;低9位都为0 
+         add ebx,512                        ;低9位都为0        
          test eax,0x000001ff                ;程序的大小正好是512的倍数吗? 
          cmovnz eax,ebx                     ;不是。使用凑整的结果 
       
@@ -450,7 +450,7 @@ load_relocate_program:                      ;加载并重定位用户程序
          mov [edi+0x14],cx
 
          ;建立程序数据段描述符
-         mov eax,edi
+         mov eax,edi 
          add eax,[edi+0x1c]                 ;数据段起始线性地址
          mov ebx,[edi+0x20]                 ;段长度
          dec ebx                            ;段界限
@@ -474,7 +474,7 @@ load_relocate_program:                      ;加载并重定位用户程序
          mov [edi+0x08],cx
 
          ;重定位SALT
-         mov eax,[edi+0x04]
+         mov eax,[edi+0x04]                 ;用户程序头部段的选择子
          mov es,eax                         ;es -> 用户程序头部 
          mov eax,core_data_seg_sel
          mov ds,eax
@@ -494,8 +494,11 @@ load_relocate_program:                      ;加载并重定位用户程序
          push esi
          push ecx
 
-         mov ecx,64                         ;检索表中，每条目的比较次数 
-         repe cmpsd                         ;每次比较4字节 
+         mov ecx,64                         ;检索表中，每条目的比较次数，每个条目一个 256 字节，每次比较四字节，即 4 * 64 =256
+         repe cmpsd                         ;每次比较4字节，即一共比较 256 字节
+         
+                                            ;这一部分的代码是存在优化空间的，当程序中的某一个符号已经成功的匹配到了内核所分配的内存地址后
+                                            ;这一层循环应该直接退出了，不然的话后面都是属于空转的状态
          jnz .b4
          mov eax,[esi]                      ;若匹配，esi恰好指向其后的地址数据
          mov [es:edi-256],eax               ;将字符串改写成偏移地址 
