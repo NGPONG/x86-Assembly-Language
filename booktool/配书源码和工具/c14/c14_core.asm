@@ -433,7 +433,7 @@ fill_descriptor_in_ldt:                     ;在LDT内安装一个新的描述符
          mov edi,[ebx+0x0c]                 ;获得LDT基地址
          
          xor ecx,ecx
-         mov cx,[ebx+0x0a]                  ;获得LDT界限
+         mov cx,[ebx+0x0a]                  ;获得LDT界限(这里要考虑 LDT 起始界限值为 0xFFFF 的情况，故使用 cx 而不是 ecx)
          inc cx                             ;LDT的总字节数，即新描述符偏移地址
          
          mov [edi+ecx+0x00],eax
@@ -444,14 +444,14 @@ fill_descriptor_in_ldt:                     ;在LDT内安装一个新的描述符
 
          mov [ebx+0x0a],cx                  ;更新LDT界限值到TCB
 
-         mov ax,cx
-         xor dx,dx
+         mov ax,                            ;安装了当前函数所传入的描述符到 LDT 中的新位置后，更新 LDT 中的界限到 TCB 当中，
+         xor dx,dx                          ;这时，这个界限值除以 8 并丢弃余数就是作为此次函数所传入的描述符在 LDT 中的索引号
          mov cx,8
          div cx
          
          mov cx,ax
          shl cx,3                           ;左移3位，并且
-         or cx,0000_0000_0000_0100B         ;使TI位=1，指向LDT，最后使RPL=00 
+         or cx,0000_0000_0000_0100B         ;使TI位=1，表示该段选择子由LDT导向。最后使RPL=00 
 
          pop ds
          pop edi
@@ -478,13 +478,13 @@ load_relocate_program:                      ;加载并重定位用户程序
          mov esi,[ebp+11*4]                 ;从堆栈中取得TCB的基地址
 
          ;以下申请创建LDT所需要的内存
-         mov ecx,160                        ;允许安装20个LDT描述符
+         mov ecx,160                        ;允许安装20个LDT描述符，每个描述符占用 8 bytes，即 64bit
          call sys_routine_seg_sel:allocate_memory
          mov [es:esi+0x0c],ecx              ;登记LDT基地址到TCB中
-         mov word [es:esi+0x0a],0xffff      ;登记LDT初始的界限到TCB中 
+         mov word [es:esi+0x0a],0xffff      ;登记LDT初始的界限到TCB中，初始状态下，LDT的大小为 0 Bytes，又因为界限值的大小为 LDT 的总大小 -1，即 0 - 1 == 0xFFFF
 
          ;以下开始加载用户程序 
-         mov eax,core_data_seg_sel
+         mov eax,core_data_seg_sel          ;使ds指向kernel数据段描述符的选择子
          mov ds,eax                         ;切换DS到内核数据段
        
          mov eax,[ebp+12*4]                 ;从堆栈中取出用户程序起始扇区号 
@@ -494,8 +494,8 @@ load_relocate_program:                      ;加载并重定位用户程序
          ;以下判断整个程序有多大
          mov eax,[core_buf]                 ;程序尺寸
          mov ebx,eax
-         and ebx,0xfffffe00                 ;使之512字节对齐（能被512整除的数低 
-         add ebx,512                        ;9位都为0 
+         and ebx,0xfffffe00                 ;使之512字节对齐（能被512整除的数的低9位都为0）
+         add ebx,512                        
          test eax,0x000001ff                ;程序的大小正好是512的倍数吗? 
          cmovnz eax,ebx                     ;不是。使用凑整的结果
       
@@ -533,7 +533,7 @@ load_relocate_program:                      ;加载并重定位用户程序
 
          or cx,0000_0000_0000_0011B         ;设置选择子的特权级为3
          mov [es:esi+0x44],cx               ;登记程序头部段选择子到TCB 
-         mov [edi+0x04],cx                  ;和头部内 
+         mov [edi+0x04],cx                  ;和头部内 (这里，ds和es都是指向 0~4G 段，为何一条指令用 ds 一条指令用 es，混淆含义，作者脑残？？)
       
          ;建立程序代码段描述符
          mov eax,edi
@@ -549,7 +549,7 @@ load_relocate_program:                      ;加载并重定位用户程序
 
          ;建立程序数据段描述符
          mov eax,edi
-         add eax,[edi+0x1c]                 ;数据段起始线性地址
+         add eax,[edi+0x1c]                 ;数据段起始线性地址(头部段的线性地址 + 程序内，数据段的偏移量)
          mov ebx,[edi+0x20]                 ;段长度
          dec ebx                            ;段界限 
          mov ecx,0x0040f200                 ;字节粒度的数据段描述符，特权级3
@@ -600,9 +600,9 @@ load_relocate_program:                      ;加载并重定位用户程序
          mov ecx,64                         ;检索表中，每条目的比较次数 
          repe cmpsd                         ;每次比较4字节 
          jnz .b4
-         mov eax,[esi]                      ;若匹配，则esi恰好指向其后的地址
-         mov [es:edi-256],eax               ;将字符串改写成偏移地址 
-         mov ax,[esi+4]
+         mov eax,[esi]                      ;若匹配，则esi恰好指向其后的地址(内核区中)
+         mov [es:edi-256],eax               ;将字符串改写成偏移地址，低位为偏移地址
+         mov ax,[esi+4]                     ;高位存储例程段选择子
          or ax,0000000000000011B            ;以用户程序自己的特权级使用调用门
                                             ;故RPL=3 
          mov [es:edi-252],ax                ;回填调用门选择子 
@@ -688,7 +688,7 @@ load_relocate_program:                      ;加载并重定位用户程序
          mov [es:esi+0x14],ecx              ;登记TSS基地址到TCB
       
          ;登记基本的TSS表格内容
-         mov word [es:ecx+0],0              ;反向链=0
+         mov word [es:ecx+0],0              ;反向链=0，表明这是一个起始任务，也是唯一的一个任务
       
          mov edx,[es:esi+0x24]              ;登记0特权级堆栈初始ESP
          mov [es:ecx+4],edx                 ;到TSS中
@@ -833,7 +833,7 @@ start:
          call sys_routine_seg_sel:put_string ;在内核中调用例程不需要通过门
       
          ;创建任务控制块。这不是处理器的要求，而是我们自己为了方便而设立的
-         mov ecx,0x46
+         mov ecx,0x46                       ;TCB所占用的空间(该大小依据对TCB的设计来核对)
          call sys_routine_seg_sel:allocate_memory
          call append_to_tcb_link            ;将任务控制块追加到TCB链表 
       
