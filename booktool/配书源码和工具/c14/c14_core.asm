@@ -444,7 +444,7 @@ fill_descriptor_in_ldt:                     ;在LDT内安装一个新的描述符
 
          mov [ebx+0x0a],cx                  ;更新LDT界限值到TCB
 
-         mov ax,                            ;安装了当前函数所传入的描述符到 LDT 中的新位置后，更新 LDT 中的界限到 TCB 当中，
+         mov ax,cx                          ;安装了当前函数所传入的描述符到 LDT 中的新位置后，更新 LDT 中的界限到 TCB 当中，
          xor dx,dx                          ;这时，这个界限值除以 8 并丢弃余数就是作为此次函数所传入的描述符在 LDT 中的索引号
          mov cx,8
          div cx
@@ -642,7 +642,7 @@ load_relocate_program:                      ;加载并重定位用户程序
          mov ecx,4096
          mov eax,ecx                        ;为生成堆栈高端地址做准备
          mov [es:esi+0x28],ecx
-         shr [es:esi+0x28],12               ;登记1特权级堆栈尺寸到TCB
+         shr dword [es:esi+0x28],12               ;登记1特权级堆栈尺寸到TCB
          call sys_routine_seg_sel:allocate_memory
          add eax,ecx                        ;堆栈必须使用高端地址为基地址
          mov [es:esi+0x2c],eax              ;登记1特权级堆栈基地址到TCB
@@ -659,7 +659,7 @@ load_relocate_program:                      ;加载并重定位用户程序
          mov ecx,4096
          mov eax,ecx                        ;为生成堆栈高端地址做准备
          mov [es:esi+0x36],ecx
-         shr [es:esi+0x36],12               ;登记2特权级堆栈尺寸到TCB
+         shr dword [es:esi+0x36],12               ;登记2特权级堆栈尺寸到TCB
          call sys_routine_seg_sel:allocate_memory
          add eax,ecx                        ;堆栈必须使用高端地址为基地址
          mov [es:esi+0x3a],ecx              ;登记2特权级堆栈基地址到TCB
