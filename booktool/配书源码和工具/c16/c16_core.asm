@@ -337,7 +337,7 @@ allocate_a_4k_page:                         ;分配一个4KB的页
          bts [page_bit_map],eax
          jnc .b2
          inc eax
-         cmp eax,page_map_len*8
+         cmp eax,page_map_len*8             ; 位串的字节数 * 8 就是一共有多少 bit
          jl .b1
          
          mov ebx,message_3
@@ -592,8 +592,8 @@ load_relocate_program:                      ;加载并重定位用户程序
          mov ecx,mem_0_4_gb_seg_sel
          mov es,ecx
       
-         ;清空当前页目录的前半部分（对应低2GB的局部地址空间） 
-         mov ebx,0xfffff000
+         ;清空当前页目录的前半部分（对应低2GB的局部地址空间，即前512个页目录项） 
+         mov ebx,0xfffff000                 ; 0xfffff000 指向页目录表中的最后一项，也就是页目录自身
          xor esi,esi
   .b1:
          mov dword [es:ebx+esi*4],0x00000000
@@ -618,7 +618,7 @@ load_relocate_program:                      ;加载并重定位用户程序
          cmovnz eax,ebx                     ;不是。使用凑整的结果
 
          mov ecx,eax
-         shr ecx,12                         ;程序占用的总4KB页数 
+         shr ecx,12                         ;程序占用的总4KB页数(相当于除以 4096)
          
          mov eax,mem_0_4_gb_seg_sel         ;切换DS到0-4GB的段
          mov ds,eax
@@ -631,7 +631,7 @@ load_relocate_program:                      ;加载并重定位用户程序
          call sys_routine_seg_sel:alloc_inst_a_page
 
          push ecx
-         mov ecx,8
+         mov ecx,8                          ;每次读取一个扇区，即512字节，因为需要4kb对齐，故内循环每次需要执行8次，即读取8个扇区
   .b3:
          call sys_routine_seg_sel:read_hard_disk_0
          inc eax
@@ -688,7 +688,7 @@ load_relocate_program:                      ;加载并重定位用户程序
          mov ebx,[es:esi+0x06]              ;从TCB中取得可用的线性地址
          add dword [es:esi+0x06],0x1000
          call sys_routine_seg_sel:alloc_inst_a_page
-         
+         ; 这里的栈，选择子使用的是数据段的选择子，即基地址为 0x0 界限为 0xFFFFFFFF，而由于栈是属于由高地址向低地址衍生的特性，并且在 668~690 已经分配了一个属于堆栈的物理页(线性地址由EBX返回，但是由于栈从高地址衍生到低地址，ESP指定为 689行，由分配出来的线性地址 ADD 0x1000 后的结果作为 ESP 的偏移)
          mov ebx,[es:esi+0x14]              ;从TCB中获取TSS的线性地址
          mov [es:ebx+80],cx                 ;填写TSS的SS域
          mov edx,[es:esi+0x06]              ;堆栈的高端线性地址 
@@ -932,10 +932,10 @@ start:
          add esi,4
          loop .b1
          
-         ;在页目录内创建指向页目录自己的目录项
+         ;在页目录内创建指向页目录自己的目录项，该项作为页目录中的最后一个目录项
          mov dword [es:ebx+4092],0x00020003 
 
-         ;在页目录内创建与线性地址0x00000000对应的目录项
+         ;在页目录内创建与线性地址0x00000000对应的目录项，该项作为页目录的第一项
          mov dword [es:ebx+0],0x00021003    ;写入目录项（页表的物理地址和属性）      
 
          ;创建与上面那个目录项相对应的页表，初始化页表项 
@@ -968,15 +968,15 @@ start:
          ;在页目录内创建与线性地址0x80000000对应的目录项
          mov ebx,0xfffff000                 ;页目录自己的线性地址 
          mov esi,0x80000000                 ;映射的起始地址
-         shr esi,22                         ;线性地址的高10位是目录索引
-         shl esi,2
+         shr esi,22                         ;线性地址的高10位是目录索引,debug 40ee0
+         shl esi,2                          ;乘以四，即 esi == 0x800，即作为页的偏移量
          mov dword [es:ebx+esi],0x00021003  ;写入目录项（页表的物理地址和属性）
                                             ;目标单元的线性地址为0xFFFFF200
                                              
          ;将GDT中的段描述符映射到线性地址0x80000000
          sgdt [pgdt]
          
-         mov ebx,[pgdt+2]
+         mov ebx,[pgdt+2]                   ; 其中，低2字节作为GDT的界限，高4字节才是GDT的32位物理地址(线性地址，原先是作为物理地址使用)，故这里要跳过前2字节
          
          or dword [es:ebx+0x10+4],0x80000000
          or dword [es:ebx+0x18+4],0x80000000
@@ -1025,9 +1025,9 @@ start:
          ;为程序管理器的TSS分配内存空间
          mov ebx,[core_next_laddr]
          call sys_routine_seg_sel:alloc_inst_a_page
-         add dword [core_next_laddr],4096
+         add dword [core_next_laddr],4096   ;刚刚分配了一个页表项，即下一次索引要 +1，而原先的线性地址+0x1000后，则代表着页表项的索引+1
 
-         ;在程序管理器的TSS中设置必要的项目 
+         ;在程序管理器的TSS中设置必要的项目
          mov word [es:ebx+0],0              ;反向链=0
 
          mov eax,cr3
