@@ -9,7 +9,7 @@
          idt_linear_address     equ  0x8001f000  ;中断描述符表的线性基地址 
 ;-------------------------------------------------------------------------------          
          ;以下定义宏
-         %macro alloc_core_linear 0              ;在内核空间中分配虚拟内存 
+         %macro alloc_core_linear 0              ;在内核空间中分配虚拟内存，最后返回 EBX 作为所分配出来的线性地址
                mov ebx,[core_tcb+0x06]
                add dword [core_tcb+0x06],0x1000
                call flat_4gb_code_seg_sel:alloc_inst_a_page
@@ -1006,16 +1006,12 @@ start:
          mov ebx,message_1
          call far [salt_1+256]              ;通过门显示信息(偏移量将被忽略) 
 
-         ;检测PCIe设备 
-
-
-
          ;初始化创建程序管理器任务的任务控制块TCB
          mov word [core_tcb+0x04],0xffff    ;任务状态：忙碌
-         mov dword [core_tcb+0x06],0x80100000    
+         mov dword [core_tcb+0x06],0x80100000 ; 前 1mb (0x80000000 ~ 0x8000FFFF) 已被内核所占用，但是可以继续往下分配
                                             ;内核虚拟空间的分配从这里开始。
          mov word [core_tcb+0x0a],0xffff    ;登记LDT初始的界限到TCB中（未使用）
-         mov ecx,core_tcb
+         mov ecx,core_tcb                   ;这里怎么是0
          call append_to_tcb_link            ;将此TCB添加到TCB链中
 
          ;为程序管理器的TSS分配内存空间

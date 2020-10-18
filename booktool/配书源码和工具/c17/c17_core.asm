@@ -15,7 +15,7 @@
                call flat_4gb_code_seg_sel:alloc_inst_a_page
          %endmacro 
 ;-------------------------------------------------------------------------------
-         %macro alloc_user_linear 0              ;在任务空间中分配虚拟内存 
+         %macro alloc_user_linear 0              ;在任务空间中分配虚拟内存
                mov ebx,[esi+0x06]
                add dword [esi+0x06],0x1000
                call flat_4gb_code_seg_sel:alloc_inst_a_page
